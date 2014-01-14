@@ -1,3 +1,4 @@
+ifneq ($(TARGET_PROVIDES_CAMERA_HAL),true)
 ifneq ($(strip $(USE_DEVICE_SPECIFIC_CAMERA)),true)
 ifneq ($(filter msm8960 msm8226 msm8974,$(TARGET_BOARD_PLATFORM)),)
   ifneq ($(USE_CAMERA_STUB),true)
@@ -5,5 +6,6 @@ ifneq ($(filter msm8960 msm8226 msm8974,$(TARGET_BOARD_PLATFORM)),)
       include $(call all-subdir-makefiles)
     endif
   endif
+endif
 endif
 endif
