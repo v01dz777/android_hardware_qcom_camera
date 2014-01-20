@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundataion. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundataion. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions are
@@ -96,7 +96,7 @@ QCameraChannel::~QCameraChannel()
         stop();
     }
 
-    for (int i = 0; i < m_numStreams; i++) {
+    for (uint32_t i = 0; i < m_numStreams; i++) {
         if (mStreams[i] != NULL) {
             delete mStreams[i];
             mStreams[i] = 0;
@@ -105,6 +105,29 @@ QCameraChannel::~QCameraChannel()
     m_numStreams = 0;
     m_camOps->delete_channel(m_camHandle, m_handle);
     m_handle = 0;
+}
+
+/*===========================================================================
+ * FUNCTION   : deleteChannel
+ *
+ * DESCRIPTION: deletes a camera channel
+ *
+ * PARAMETERS : none
+ *
+ * RETURN     : none
+ *==========================================================================*/
+void QCameraChannel::deleteChannel()
+{
+    if (m_bIsActive) {
+        stop();
+    }
+
+    for (uint32_t i = 0; i < m_numStreams; i++) {
+        if (mStreams[i] != NULL) {
+            mStreams[i]->deleteStream();
+        }
+    }
+    m_camOps->delete_channel(m_camHandle, m_handle);
 }
 
 /*===========================================================================
@@ -187,6 +210,33 @@ int32_t QCameraChannel::addStream(QCameraAllocator &allocator,
 }
 
 /*===========================================================================
+ * FUNCTION   : config
+ *
+ * DESCRIPTION: Configure any deffered channel streams
+ *
+ * PARAMETERS : None
+ *
+ * RETURN     : int32_t type of status
+ *              NO_ERROR  -- success
+ *              none-zero failure code
+ *==========================================================================*/
+int32_t QCameraChannel::config()
+{
+    int32_t rc = NO_ERROR;
+
+    for (uint32_t i = 0; i < m_numStreams; ++i) {
+        if ( mStreams[i]->isDeffered() ) {
+            rc = mStreams[i]->configStream();
+            if (rc != NO_ERROR) {
+                break;
+            }
+        }
+    }
+
+    return rc;
+}
+
+/*===========================================================================
  * FUNCTION   : start
  *
  * DESCRIPTION: start channel, which will start all streams belong to this channel
@@ -235,7 +285,7 @@ int32_t QCameraChannel::start()
         }
     }
 
-    for (int i = 0; i < m_numStreams; i++) {
+    for (uint32_t i = 0; i < m_numStreams; i++) {
         if (mStreams[i] != NULL) {
             mStreams[i]->start();
         }
@@ -243,13 +293,18 @@ int32_t QCameraChannel::start()
     rc = m_camOps->start_channel(m_camHandle, m_handle);
 
     if (rc != NO_ERROR) {
-        for (int i = 0; i < m_numStreams; i++) {
+        for (uint32_t i = 0; i < m_numStreams; i++) {
             if (mStreams[i] != NULL) {
                 mStreams[i]->stop();
             }
         }
     } else {
         m_bIsActive = true;
+        for (uint32_t i = 0; i < m_numStreams; i++) {
+            if (mStreams[i] != NULL) {
+                mStreams[i]->cond_signal();
+            }
+        }
     }
 
     return rc;
@@ -269,9 +324,7 @@ int32_t QCameraChannel::start()
 int32_t QCameraChannel::stop()
 {
     int32_t rc = NO_ERROR;
-    rc = m_camOps->stop_channel(m_camHandle, m_handle);
-
-    for (int i = 0; i < m_numStreams; i++) {
+    for (uint32_t i = 0; i < m_numStreams; i++) {
         if (mStreams[i] != NULL) {
             mStreams[i]->stop();
         }
@@ -296,16 +349,16 @@ int32_t QCameraChannel::stop()
 int32_t QCameraChannel::bufDone(mm_camera_super_buf_t *recvd_frame)
 {
     int32_t rc = NO_ERROR;
-    for (int i = 0; i < recvd_frame->num_bufs; i++) {
-         if (recvd_frame->bufs[i] != NULL) {
-             for (int j = 0; j < m_numStreams; j++) {
-                 if (mStreams[j] != NULL &&
-                     mStreams[j]->getMyHandle() == recvd_frame->bufs[i]->stream_id) {
-                     rc = mStreams[j]->bufDone(recvd_frame->bufs[i]->buf_idx);
-                     break; // break loop j
-                 }
-             }
-         }
+    for (uint32_t i = 0; i < recvd_frame->num_bufs; i++) {
+        if (recvd_frame->bufs[i] != NULL) {
+            for (uint32_t j = 0; j < m_numStreams; j++) {
+                if (mStreams[j] != NULL &&
+                        mStreams[j]->getMyHandle() == recvd_frame->bufs[i]->stream_id) {
+                    rc = mStreams[j]->bufDone(recvd_frame->bufs[i]->buf_idx);
+                    break; // break loop j
+                }
+            }
+        }
     }
 
     return rc;
@@ -329,7 +382,7 @@ int32_t QCameraChannel::processZoomDone(preview_stream_ops_t *previewWindow,
                                         cam_crop_data_t &crop_info)
 {
     int32_t rc = NO_ERROR;
-    for (int i = 0; i < m_numStreams; i++) {
+    for (uint32_t i = 0; i < m_numStreams; i++) {
         if (mStreams[i] != NULL) {
             rc = mStreams[i]->processZoomDone(previewWindow, crop_info);
         }
@@ -349,7 +402,7 @@ int32_t QCameraChannel::processZoomDone(preview_stream_ops_t *previewWindow,
  *==========================================================================*/
 QCameraStream *QCameraChannel::getStreamByHandle(uint32_t streamHandle)
 {
-    for (int i = 0; i < m_numStreams; i++) {
+    for (uint32_t i = 0; i < m_numStreams; i++) {
         if (mStreams[i] != NULL && mStreams[i]->getMyHandle() == streamHandle) {
             return mStreams[i];
         }
@@ -369,7 +422,7 @@ QCameraStream *QCameraChannel::getStreamByHandle(uint32_t streamHandle)
  *==========================================================================*/
 QCameraStream *QCameraChannel::getStreamByServerID(uint32_t serverID)
 {
-    for (int i = 0; i < m_numStreams; i++) {
+    for (uint32_t i = 0; i < m_numStreams; i++) {
         if (mStreams[i] != NULL && mStreams[i]->getMyServerID() == serverID) {
             return mStreams[i];
         }
@@ -387,12 +440,86 @@ QCameraStream *QCameraChannel::getStreamByServerID(uint32_t serverID)
  *
  * RETURN     : stream object. NULL if not found
  *==========================================================================*/
-QCameraStream *QCameraChannel::getStreamByIndex(uint8_t index)
+QCameraStream *QCameraChannel::getStreamByIndex(uint32_t index)
 {
     if (index < m_numStreams) {
         return mStreams[index];
     }
     return NULL;
+}
+
+/*===========================================================================
+ * FUNCTION   : UpdateStreamBasedParameters
+ *
+ * DESCRIPTION: update any stream based settings from parameters
+ *
+ * PARAMETERS :
+ *   @param   : reference to parameters object
+ *
+ * RETURN     : int32_t type of status
+ *              NO_ERROR  -- success
+ *              none-zero failure code
+ *==========================================================================*/
+int32_t QCameraChannel::UpdateStreamBasedParameters(QCameraParameters &param)
+{
+    int32_t rc = NO_ERROR;
+    if (param.isPreviewFlipChanged()) {
+        // try to find preview stream
+        for (int i = 0; i < MAX_STREAM_NUM_IN_BUNDLE; i++) {
+            if (mStreams[i] != NULL &&
+                (mStreams[i]->isTypeOf(CAM_STREAM_TYPE_PREVIEW) ||
+                (mStreams[i]->isOrignalTypeOf(CAM_STREAM_TYPE_PREVIEW))) ) {
+                cam_stream_parm_buffer_t param_buf;
+                memset(&param_buf, 0, sizeof(cam_stream_parm_buffer_t));
+                param_buf.type = CAM_STREAM_PARAM_TYPE_SET_FLIP;
+                param_buf.flipInfo.flip_mask =
+                        (uint32_t)param.getFlipMode(CAM_STREAM_TYPE_PREVIEW);
+                rc = mStreams[i]->setParameter(param_buf);
+                if (rc != NO_ERROR) {
+                    ALOGE("%s: set preview stream flip failed", __func__);
+                }
+            }
+        }
+    }
+    if (param.isVideoFlipChanged()) {
+        // try to find video stream
+        for (int i = 0; i < MAX_STREAM_NUM_IN_BUNDLE; i++) {
+            if (mStreams[i] != NULL &&
+                (mStreams[i]->isTypeOf(CAM_STREAM_TYPE_VIDEO) ||
+                (mStreams[i]->isOrignalTypeOf(CAM_STREAM_TYPE_VIDEO))) ) {
+                cam_stream_parm_buffer_t param_buf;
+                memset(&param_buf, 0, sizeof(cam_stream_parm_buffer_t));
+                param_buf.type = CAM_STREAM_PARAM_TYPE_SET_FLIP;
+                param_buf.flipInfo.flip_mask =
+                        (uint32_t)param.getFlipMode(CAM_STREAM_TYPE_VIDEO);
+                rc = mStreams[i]->setParameter(param_buf);
+                if (rc != NO_ERROR) {
+                    ALOGE("%s: set video stream flip failed", __func__);
+                }
+            }
+        }
+    }
+    if (param.isSnapshotFlipChanged()) {
+        // try to find snapshot/postview stream
+        for (int i = 0; i < MAX_STREAM_NUM_IN_BUNDLE; i++) {
+            if (mStreams[i] != NULL &&
+                (mStreams[i]->isTypeOf(CAM_STREAM_TYPE_SNAPSHOT) ||
+                 mStreams[i]->isOrignalTypeOf(CAM_STREAM_TYPE_SNAPSHOT) ||
+                 mStreams[i]->isTypeOf(CAM_STREAM_TYPE_POSTVIEW) ||
+                 mStreams[i]->isOrignalTypeOf(CAM_STREAM_TYPE_POSTVIEW) ) ) {
+                cam_stream_parm_buffer_t param_buf;
+                memset(&param_buf, 0, sizeof(cam_stream_parm_buffer_t));
+                param_buf.type = CAM_STREAM_PARAM_TYPE_SET_FLIP;
+                param_buf.flipInfo.flip_mask =
+                        (uint32_t)param.getFlipMode(CAM_STREAM_TYPE_SNAPSHOT);
+                rc = mStreams[i]->setParameter(param_buf);
+                if (rc != NO_ERROR) {
+                    ALOGE("%s: set snapshot stream flip failed", __func__);
+                }
+            }
+        }
+    }
+    return rc;
 }
 
 /*===========================================================================
@@ -534,7 +661,7 @@ QCameraVideoChannel::~QCameraVideoChannel()
 int32_t QCameraVideoChannel::releaseFrame(const void * opaque, bool isMetaData)
 {
     QCameraStream *pVideoStream = NULL;
-    for (int i = 0; i < m_numStreams; i++) {
+    for (uint32_t i = 0; i < m_numStreams; i++) {
         if (mStreams[i] != NULL && mStreams[i]->isTypeOf(CAM_STREAM_TYPE_VIDEO)) {
             pVideoStream = mStreams[i];
             break;
@@ -613,11 +740,12 @@ QCameraReprocessChannel::~QCameraReprocessChannel()
  *              NO_ERROR  -- success
  *              none-zero failure code
  *==========================================================================*/
-int32_t QCameraReprocessChannel::addReprocStreamsFromSource(QCameraAllocator& allocator,
-                                                            cam_pp_feature_config_t &config,
-                                                            QCameraChannel *pSrcChannel,
-                                                            uint8_t minStreamBufNum,
-                                                            cam_padding_info_t *paddingInfo)
+
+int32_t QCameraReprocessChannel::addReprocStreamsFromSource(
+        QCameraAllocator& allocator, cam_pp_feature_config_t &config,
+        QCameraChannel *pSrcChannel, uint8_t minStreamBufNum, uint8_t burstNum,
+        cam_padding_info_t *paddingInfo, QCameraParameters &param, bool contStream,
+        bool offline)
 {
     int32_t rc = 0;
     QCameraStream *pStream = NULL;
@@ -626,13 +754,43 @@ int32_t QCameraReprocessChannel::addReprocStreamsFromSource(QCameraAllocator& al
 
     memset(mSrcStreamHandles, 0, sizeof(mSrcStreamHandles));
 
-    for (int i = 0; i < pSrcChannel->getNumOfStreams(); i++) {
+    for (uint32_t i = 0; i < pSrcChannel->getNumOfStreams(); i++) {
         pStream = pSrcChannel->getStreamByIndex(i);
         if (pStream != NULL) {
             if (pStream->isTypeOf(CAM_STREAM_TYPE_METADATA)) {
                 // Skip metadata for reprocess now because PP module cannot handle meta data
                 // May need furthur discussion if Imaginglib need meta data
                 continue;
+            }
+
+            if (pStream->isTypeOf(CAM_STREAM_TYPE_PREVIEW) ||
+                    pStream->isTypeOf(CAM_STREAM_TYPE_POSTVIEW) ||
+                    pStream->isOrignalTypeOf(CAM_STREAM_TYPE_PREVIEW) ||
+                    pStream->isOrignalTypeOf(CAM_STREAM_TYPE_POSTVIEW) ||
+                    (param.getofflineRAW() && pStream->isTypeOf(CAM_STREAM_TYPE_RAW))) {
+                uint32_t feature_mask = config.feature_mask;
+
+                if ((feature_mask & ~CAM_QCOM_FEATURE_HDR) == 0
+                        && param.isHDREnabled()
+                        && !param.isHDRThumbnailProcessNeeded()) {
+
+                    // Skip thumbnail stream reprocessing in HDR
+                    // if only hdr is enabled
+                    continue;
+                }
+
+                // skip thumbnail reprocessing if not needed
+                if (!param.needThumbnailReprocess(&feature_mask)) {
+                    continue;
+                }
+
+                //Don't do WNR for thumbnail
+                feature_mask &= ~CAM_QCOM_FEATURE_DENOISE2D;
+                if (!feature_mask) {
+                    // Skip thumbnail stream reprocessing since no other
+                    //reprocessing is enabled.
+                    continue;
+                }
             }
 
             pStreamInfoBuf = allocator.allocateStreamInfoBuf(CAM_STREAM_TYPE_OFFLINE_PROC);
@@ -671,6 +829,35 @@ int32_t QCameraReprocessChannel::addReprocStreamsFromSource(QCameraAllocator& al
                 }
             }
 
+            if (param.isZSLMode() &&
+                (streamInfo->reprocess_config.online.input_stream_type == CAM_STREAM_TYPE_SNAPSHOT)) {
+                // ZSL mode snapshot need reprocess to do the flip
+                int flipMode =
+                    param.getFlipMode(streamInfo->reprocess_config.online.input_stream_type);
+                if (flipMode > 0) {
+                    streamInfo->reprocess_config.pp_feature_config.feature_mask |= CAM_QCOM_FEATURE_FLIP;
+                    streamInfo->reprocess_config.pp_feature_config.flip = (uint32_t)flipMode;
+                }
+            }
+
+            if(streamInfo->reprocess_config.pp_feature_config.feature_mask & CAM_QCOM_FEATURE_SCALE){
+                //we only Scale Snapshot frame
+                if(pStream->isTypeOf(CAM_STREAM_TYPE_SNAPSHOT)){
+                    //also check whether rotation is needed
+                    if((streamInfo->reprocess_config.pp_feature_config.feature_mask & CAM_QCOM_FEATURE_ROTATION) &&
+                       (streamInfo->reprocess_config.pp_feature_config.rotation == ROTATE_90 ||
+                        streamInfo->reprocess_config.pp_feature_config.rotation == ROTATE_270)){
+                        //need swap
+                        streamInfo->dim.width = streamInfo->reprocess_config.pp_feature_config.scale_param.output_height;
+                        streamInfo->dim.height = streamInfo->reprocess_config.pp_feature_config.scale_param.output_width;
+                    }else{
+                        streamInfo->dim.width = streamInfo->reprocess_config.pp_feature_config.scale_param.output_width;
+                        streamInfo->dim.height = streamInfo->reprocess_config.pp_feature_config.scale_param.output_height;
+                    }
+                }
+                CDBG_HIGH("%s: stream width=%d, height=%d.", __func__, streamInfo->dim.width, streamInfo->dim.height);
+            }
+
             // save source stream handler
             mSrcStreamHandles[m_numStreams] = pStream->getMyHandle();
 
@@ -706,7 +893,7 @@ QCameraStream * QCameraReprocessChannel::getStreamBySrouceHandle(uint32_t srcHan
 {
     QCameraStream *pStream = NULL;
 
-    for (int i = 0; i < m_numStreams; i++) {
+    for (uint32_t i = 0; i < m_numStreams; i++) {
         if (mSrcStreamHandles[i] == srcHandle) {
             pStream = mStreams[i];
             break;
@@ -714,6 +901,173 @@ QCameraStream * QCameraReprocessChannel::getStreamBySrouceHandle(uint32_t srcHan
     }
 
     return pStream;
+}
+
+/*===========================================================================
+ * FUNCTION   : stop
+ *
+ * DESCRIPTION: Unmap offline buffers and stop channel
+ *
+ * PARAMETERS : none
+ *
+ * RETURN     : int32_t type of status
+ *              NO_ERROR  -- success
+ *              none-zero failure code
+ *==========================================================================*/
+int32_t QCameraReprocessChannel::stop()
+{
+    if (!mOfflineBuffers.empty()) {
+        QCameraStream *stream = NULL;
+        List<OfflineBuffer>::iterator it = mOfflineBuffers.begin();
+        int error = NO_ERROR;
+        for( ; it != mOfflineBuffers.end(); it++) {
+            stream = (*it).stream;
+            if (NULL != stream) {
+                error = stream->unmapBuf((*it).type,
+                                         (*it).index,
+                                         -1);
+                if (NO_ERROR != error) {
+                    ALOGE("%s: Error during offline buffer unmap %d",
+                          __func__, error);
+                }
+            }
+        }
+        mOfflineBuffers.clear();
+    }
+
+    return QCameraChannel::stop();
+}
+
+/*===========================================================================
+ * FUNCTION   : doReprocessOffline
+ *
+ * DESCRIPTION: request to do offline reprocess on the frame
+ *
+ * PARAMETERS :
+ *   @frame   : frame to be performed a reprocess
+ *
+ * RETURN     : int32_t type of status
+ *              NO_ERROR  -- success
+ *              none-zero failure code
+ *==========================================================================*/
+int32_t QCameraReprocessChannel::doReprocessOffline(
+                mm_camera_super_buf_t *frame)
+{
+    int32_t rc = 0;
+    OfflineBuffer mappedBuffer;
+
+    if (m_numStreams < 1) {
+        ALOGE("%s: No reprocess stream is created", __func__);
+        return -1;
+    }
+    if (m_pSrcChannel == NULL) {
+        ALOGE("%s: No source channel for reprocess", __func__);
+        return -1;
+    }
+
+    if (frame == NULL) {
+        ALOGE("%s: Invalid source frame", __func__);
+        return BAD_VALUE;
+    }
+
+    // find meta data stream and index of meta data frame in the superbuf
+    mm_camera_buf_def_t *meta_buf = NULL;
+    QCameraStream *pStream = NULL;
+    for (uint32_t i = 0; i < frame->num_bufs; i++) {
+        pStream = m_pSrcChannel->getStreamByHandle(frame->bufs[i]->stream_id);
+        if (pStream != NULL) {
+            if (pStream->isTypeOf(CAM_STREAM_TYPE_METADATA)) {
+                meta_buf = frame->bufs[i];
+                break;
+            }
+        }
+    }
+
+    for (uint32_t i = 0; i < frame->num_bufs; i++) {
+        pStream = getStreamBySrouceHandle(frame->bufs[i]->stream_id);
+        if (pStream != NULL) {
+            if (pStream->isTypeOf(CAM_STREAM_TYPE_METADATA)) {
+                continue;
+            }
+
+            uint32_t meta_buf_index = 0;
+            if (NULL != meta_buf) {
+                rc = pStream->mapBuf(CAM_MAPPING_BUF_TYPE_OFFLINE_META_BUF,
+                                     meta_buf_index,
+                                     -1,
+                                     meta_buf->fd,
+                                     meta_buf->frame_len);
+                if (NO_ERROR != rc ) {
+                    ALOGE("%s : Error during metadata buffer mapping",
+                          __func__);
+                    break;
+                }
+            }
+            mappedBuffer.index = meta_buf_index;
+            mappedBuffer.stream = pStream;
+            mappedBuffer.type = CAM_MAPPING_BUF_TYPE_OFFLINE_META_BUF;
+            mOfflineBuffers.push_back(mappedBuffer);
+
+            uint32_t buf_index = 1;
+            rc = pStream->mapBuf(CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF,
+                                 buf_index,
+                                 -1,
+                                 frame->bufs[i]->fd,
+                                 frame->bufs[i]->frame_len);
+            if (NO_ERROR != rc ) {
+                ALOGE("%s : Error during reprocess input buffer mapping",
+                      __func__);
+                break;
+            }
+            mappedBuffer.index = buf_index;
+            mappedBuffer.stream = pStream;
+            mappedBuffer.type = CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF;
+            mOfflineBuffers.push_back(mappedBuffer);
+
+            cam_stream_parm_buffer_t param;
+            memset(&param, 0, sizeof(cam_stream_parm_buffer_t));
+            param.type = CAM_STREAM_PARAM_TYPE_DO_REPROCESS;
+            param.reprocess.buf_index = buf_index;
+            param.reprocess.frame_pp_config.uv_upsample =
+                            frame->bufs[i]->is_uv_subsampled;
+            if (NULL != meta_buf) {
+                // we have meta data sent together with reprocess frame
+                param.reprocess.meta_present = 1;
+                param.reprocess.meta_buf_index = meta_buf_index;
+                uint32_t stream_id = frame->bufs[i]->stream_id;
+                QCameraStream *srcStream =
+                        m_pSrcChannel->getStreamByHandle(stream_id);
+                metadata_buffer_t *pMetaData =
+                        (metadata_buffer_t *)meta_buf->buffer;
+                if (NULL != pMetaData) {
+                    cam_crop_data_t *crop = NULL;
+                    if (IS_META_AVAILABLE(CAM_INTF_META_CROP_DATA, pMetaData)) {
+                        crop = (cam_crop_data_t *)
+                            POINTER_OF_META(CAM_INTF_META_CROP_DATA, pMetaData);
+                    }
+
+                    if ((NULL != crop) && (NULL != srcStream)) {
+                        for (int j = 0; j < MAX_NUM_STREAMS; j++) {
+                            if (crop->crop_info[j].stream_id ==
+                                            srcStream->getMyServerID()) {
+                                param.reprocess.frame_pp_config.crop.crop_enabled = 1;
+                                param.reprocess.frame_pp_config.crop.input_crop =
+                                        crop->crop_info[j].crop;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            rc = pStream->setParameter(param);
+            if (rc != NO_ERROR) {
+                ALOGE("%s: stream setParameter for reprocess failed",
+                      __func__);
+                break;
+            }
+        }
+    }
+    return rc;
 }
 
 /*===========================================================================
@@ -742,8 +1096,8 @@ int32_t QCameraReprocessChannel::doReprocess(mm_camera_super_buf_t *frame)
 
     // find meta data stream and index of meta data frame in the superbuf
     QCameraStream *pMetaStream = NULL;
-    uint8_t meta_buf_index = 0;
-    for (int i = 0; i < frame->num_bufs; i++) {
+    uint32_t meta_buf_index = 0;
+    for (uint32_t i = 0; i < frame->num_bufs; i++) {
         QCameraStream *pStream = m_pSrcChannel->getStreamByHandle(frame->bufs[i]->stream_id);
         if (pStream != NULL) {
             if (pStream->isTypeOf(CAM_STREAM_TYPE_METADATA)) {
@@ -800,8 +1154,7 @@ int32_t QCameraReprocessChannel::doReprocess(mm_camera_super_buf_t *frame)
  *              none-zero failure code
  *==========================================================================*/
 int32_t QCameraReprocessChannel::doReprocess(int buf_fd,
-                                             uint32_t buf_length,
-                                             int32_t &ret_val)
+        size_t buf_length, int32_t &ret_val)
 {
     int32_t rc = 0;
     if (m_numStreams < 1) {
@@ -809,8 +1162,8 @@ int32_t QCameraReprocessChannel::doReprocess(int buf_fd,
         return -1;
     }
 
-    uint32_t buf_idx = 0;
-    for (int i = 0; i < m_numStreams; i++) {
+    uint8_t buf_idx = 0;
+    for (uint32_t i = 0; i < m_numStreams; i++) {
         rc = mStreams[i]->mapBuf(CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF,
                                  buf_idx, -1,
                                  buf_fd, buf_length);

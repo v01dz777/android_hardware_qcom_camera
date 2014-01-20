@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -38,54 +38,9 @@
 #include "mm_jpeg_interface.h"
 #include "mm_jpeg.h"
 
-static pthread_mutex_t g_intf_lock = PTHREAD_MUTEX_INITIALIZER;
-static mm_jpeg_obj* g_jpeg_obj = NULL;
+static pthread_mutex_t g_dec_intf_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static pthread_mutex_t g_handler_lock = PTHREAD_MUTEX_INITIALIZER;
-static uint16_t g_handler_history_count = 0; /* history count for handler */
-
-/** mm_jpeg_util_generate_handler:
- *
- *  Arguments:
- *    @index: client index
- *
- *  Return:
- *       handle value
- *
- *  Description:
- *       utility function to generate handler
- *
- **/
-uint32_t mm_jpeg_util_generate_handler(uint8_t index)
-{
-  uint32_t handler = 0;
-  pthread_mutex_lock(&g_handler_lock);
-  g_handler_history_count++;
-  if (0 == g_handler_history_count) {
-    g_handler_history_count++;
-  }
-  handler = g_handler_history_count;
-  handler = (handler<<8) | index;
-  pthread_mutex_unlock(&g_handler_lock);
-  return handler;
-}
-
-/** mm_jpeg_util_get_index_by_handler:
- *
- *  Arguments:
- *    @handler: handle value
- *
- *  Return:
- *       client index
- *
- *  Description:
- *       get client index
- *
- **/
-uint8_t mm_jpeg_util_get_index_by_handler(uint32_t handler)
-{
-  return (handler & 0x000000ff);
-}
+static mm_jpeg_obj* g_jpegdec_obj = NULL;
 
 /** mm_jpeg_intf_start_job:
  *
@@ -101,7 +56,7 @@ uint8_t mm_jpeg_util_get_index_by_handler(uint32_t handler)
  *       start the jpeg job
  *
  **/
-static int32_t mm_jpeg_intf_start_job(mm_jpeg_job_t* job, uint32_t* job_id)
+static int32_t mm_jpegdec_intf_start_job(mm_jpeg_job_t* job, uint32_t* job_id)
 {
   int32_t rc = -1;
 
@@ -111,15 +66,15 @@ static int32_t mm_jpeg_intf_start_job(mm_jpeg_job_t* job, uint32_t* job_id)
     return rc;
   }
 
-  pthread_mutex_lock(&g_intf_lock);
-  if (NULL == g_jpeg_obj) {
+  pthread_mutex_lock(&g_dec_intf_lock);
+  if (NULL == g_jpegdec_obj) {
     /* mm_jpeg obj not exists, return error */
     CDBG_ERROR("%s:%d] mm_jpeg is not opened yet", __func__, __LINE__);
-    pthread_mutex_unlock(&g_intf_lock);
+    pthread_mutex_unlock(&g_dec_intf_lock);
     return rc;
   }
-  rc = mm_jpeg_start_job(g_jpeg_obj, job, job_id);
-  pthread_mutex_unlock(&g_intf_lock);
+  rc = mm_jpegdec_start_decode_job(g_jpegdec_obj, job, job_id);
+  pthread_mutex_unlock(&g_dec_intf_lock);
   return rc;
 }
 
@@ -137,8 +92,8 @@ static int32_t mm_jpeg_intf_start_job(mm_jpeg_job_t* job, uint32_t* job_id)
  *       Create new jpeg session
  *
  **/
-static int32_t mm_jpeg_intf_create_session(uint32_t client_hdl,
-    mm_jpeg_encode_params_t *p_params,
+static int32_t mm_jpegdec_intf_create_session(uint32_t client_hdl,
+    mm_jpeg_decode_params_t *p_params,
     uint32_t *p_session_id)
 {
   int32_t rc = -1;
@@ -148,16 +103,16 @@ static int32_t mm_jpeg_intf_create_session(uint32_t client_hdl,
     return rc;
   }
 
-  pthread_mutex_lock(&g_intf_lock);
-  if (NULL == g_jpeg_obj) {
+  pthread_mutex_lock(&g_dec_intf_lock);
+  if (NULL == g_jpegdec_obj) {
     /* mm_jpeg obj not exists, return error */
     CDBG_ERROR("%s:%d] mm_jpeg is not opened yet", __func__, __LINE__);
-    pthread_mutex_unlock(&g_intf_lock);
+    pthread_mutex_unlock(&g_dec_intf_lock);
     return rc;
   }
 
-  rc = mm_jpeg_create_session(g_jpeg_obj, client_hdl, p_params, p_session_id);
-  pthread_mutex_unlock(&g_intf_lock);
+  rc = mm_jpegdec_create_session(g_jpegdec_obj, client_hdl, p_params, p_session_id);
+  pthread_mutex_unlock(&g_dec_intf_lock);
   return rc;
 }
 
@@ -173,7 +128,7 @@ static int32_t mm_jpeg_intf_create_session(uint32_t client_hdl,
  *       Destroy jpeg session
  *
  **/
-static int32_t mm_jpeg_intf_destroy_session(uint32_t session_id)
+static int32_t mm_jpegdec_intf_destroy_session(uint32_t session_id)
 {
   int32_t rc = -1;
 
@@ -182,20 +137,20 @@ static int32_t mm_jpeg_intf_destroy_session(uint32_t session_id)
     return rc;
   }
 
-  pthread_mutex_lock(&g_intf_lock);
-  if (NULL == g_jpeg_obj) {
+  pthread_mutex_lock(&g_dec_intf_lock);
+  if (NULL == g_jpegdec_obj) {
     /* mm_jpeg obj not exists, return error */
     CDBG_ERROR("%s:%d] mm_jpeg is not opened yet", __func__, __LINE__);
-    pthread_mutex_unlock(&g_intf_lock);
+    pthread_mutex_unlock(&g_dec_intf_lock);
     return rc;
   }
 
-  rc = mm_jpeg_destroy_session_by_id(g_jpeg_obj, session_id);
-  pthread_mutex_unlock(&g_intf_lock);
+  rc = mm_jpegdec_destroy_session_by_id(g_jpegdec_obj, session_id);
+  pthread_mutex_unlock(&g_dec_intf_lock);
   return rc;
 }
 
-/** mm_jpeg_intf_abort_job:
+/** mm_jpegdec_intf_abort_job:
  *
  *  Arguments:
  *    @jobId: job id
@@ -207,7 +162,7 @@ static int32_t mm_jpeg_intf_destroy_session(uint32_t session_id)
  *       Abort the jpeg job
  *
  **/
-static int32_t mm_jpeg_intf_abort_job(uint32_t job_id)
+static int32_t mm_jpegdec_intf_abort_job(uint32_t job_id)
 {
   int32_t rc = -1;
 
@@ -216,16 +171,16 @@ static int32_t mm_jpeg_intf_abort_job(uint32_t job_id)
     return rc;
   }
 
-  pthread_mutex_lock(&g_intf_lock);
-  if (NULL == g_jpeg_obj) {
+  pthread_mutex_lock(&g_dec_intf_lock);
+  if (NULL == g_jpegdec_obj) {
     /* mm_jpeg obj not exists, return error */
     CDBG_ERROR("%s:%d] mm_jpeg is not opened yet", __func__, __LINE__);
-    pthread_mutex_unlock(&g_intf_lock);
+    pthread_mutex_unlock(&g_dec_intf_lock);
     return rc;
   }
 
-  rc = mm_jpeg_abort_job(g_jpeg_obj, job_id);
-  pthread_mutex_unlock(&g_intf_lock);
+  rc = mm_jpegdec_abort_job(g_jpegdec_obj, job_id);
+  pthread_mutex_unlock(&g_dec_intf_lock);
   return rc;
 }
 
@@ -241,7 +196,7 @@ static int32_t mm_jpeg_intf_abort_job(uint32_t job_id)
  *       Close the jpeg job
  *
  **/
-static int32_t mm_jpeg_intf_close(uint32_t client_hdl)
+static int32_t mm_jpegdec_intf_close(uint32_t client_hdl)
 {
   int32_t rc = -1;
 
@@ -250,30 +205,32 @@ static int32_t mm_jpeg_intf_close(uint32_t client_hdl)
     return rc;
   }
 
-  pthread_mutex_lock(&g_intf_lock);
-  if (NULL == g_jpeg_obj) {
+  pthread_mutex_lock(&g_dec_intf_lock);
+  if (NULL == g_jpegdec_obj) {
     /* mm_jpeg obj not exists, return error */
     CDBG_ERROR("%s:%d] mm_jpeg is not opened yet", __func__, __LINE__);
-    pthread_mutex_unlock(&g_intf_lock);
+    pthread_mutex_unlock(&g_dec_intf_lock);
     return rc;
   }
 
-  rc = mm_jpeg_close(g_jpeg_obj, client_hdl);
-  g_jpeg_obj->num_clients--;
+  rc = mm_jpeg_close(g_jpegdec_obj, client_hdl);
+  g_jpegdec_obj->num_clients--;
   if(0 == rc) {
-    if (0 == g_jpeg_obj->num_clients) {
+    if (0 == g_jpegdec_obj->num_clients) {
       /* No client, close jpeg internally */
-      rc = mm_jpeg_deinit(g_jpeg_obj);
-      free(g_jpeg_obj);
-      g_jpeg_obj = NULL;
+      rc = mm_jpegdec_deinit(g_jpegdec_obj);
+      free(g_jpegdec_obj);
+      g_jpegdec_obj = NULL;
     }
   }
 
-  pthread_mutex_unlock(&g_intf_lock);
+  pthread_mutex_unlock(&g_dec_intf_lock);
   return rc;
 }
 
-/** jpeg_open:
+
+
+/** jpegdec_open:
  *
  *  Arguments:
  *    @ops: ops table pointer
@@ -285,78 +242,63 @@ static int32_t mm_jpeg_intf_close(uint32_t client_hdl)
  *       Open a jpeg client
  *
  **/
-uint32_t jpeg_open(mm_jpeg_ops_t *ops)
+uint32_t jpegdec_open(mm_jpegdec_ops_t *ops)
 {
   int32_t rc = 0;
   uint32_t clnt_hdl = 0;
   mm_jpeg_obj* jpeg_obj = NULL;
-  char prop[PROPERTY_VALUE_MAX];
-  uint32_t globalLogLevel = 0;
 
-  memset(prop, 0x0, sizeof(prop));
-  property_get("persist.camera.hal.debug", prop, "0");
-  int val = atoi(prop);
-  if (0 <= val) {
-      gMmJpegIntfLogLevel = (uint32_t)val;
-  }
-  property_get("persist.camera.global.debug", prop, "0");
-  val = atoi(prop);
-  if (0 <= val) {
-      globalLogLevel = (uint32_t)val;
-  }
-
-  /* Highest log level among hal.logs and global.logs is selected */
-  if (gMmJpegIntfLogLevel < globalLogLevel)
-      gMmJpegIntfLogLevel = globalLogLevel;
-
-  pthread_mutex_lock(&g_intf_lock);
+  pthread_mutex_lock(&g_dec_intf_lock);
   /* first time open */
-  if(NULL == g_jpeg_obj) {
+  if(NULL == g_jpegdec_obj) {
     jpeg_obj = (mm_jpeg_obj *)malloc(sizeof(mm_jpeg_obj));
     if(NULL == jpeg_obj) {
       CDBG_ERROR("%s:%d] no mem", __func__, __LINE__);
-      pthread_mutex_unlock(&g_intf_lock);
+      pthread_mutex_unlock(&g_dec_intf_lock);
       return clnt_hdl;
     }
 
     /* initialize jpeg obj */
     memset(jpeg_obj, 0, sizeof(mm_jpeg_obj));
-    rc = mm_jpeg_init(jpeg_obj);
+    rc = mm_jpegdec_init(jpeg_obj);
     if(0 != rc) {
       CDBG_ERROR("%s:%d] mm_jpeg_init err = %d", __func__, __LINE__, rc);
       free(jpeg_obj);
-      pthread_mutex_unlock(&g_intf_lock);
+      pthread_mutex_unlock(&g_dec_intf_lock);
       return clnt_hdl;
     }
 
     /* remember in global variable */
-    g_jpeg_obj = jpeg_obj;
+    g_jpegdec_obj = jpeg_obj;
   }
 
   /* open new client */
-  clnt_hdl = mm_jpeg_new_client(g_jpeg_obj);
+  clnt_hdl = mm_jpeg_new_client(g_jpegdec_obj);
   if (clnt_hdl > 0) {
     /* valid client */
     if (NULL != ops) {
       /* fill in ops tbl if ptr not NULL */
-      ops->start_job = mm_jpeg_intf_start_job;
-      ops->abort_job = mm_jpeg_intf_abort_job;
-      ops->create_session = mm_jpeg_intf_create_session;
-      ops->destroy_session = mm_jpeg_intf_destroy_session;
-      ops->close = mm_jpeg_intf_close;
+      ops->start_job = mm_jpegdec_intf_start_job;
+      ops->abort_job = mm_jpegdec_intf_abort_job;
+      ops->create_session = mm_jpegdec_intf_create_session;
+      ops->destroy_session = mm_jpegdec_intf_destroy_session;
+      ops->close = mm_jpegdec_intf_close;
     }
   } else {
     /* failed new client */
     CDBG_ERROR("%s:%d] mm_jpeg_new_client failed", __func__, __LINE__);
 
-    if (0 == g_jpeg_obj->num_clients) {
+    if (0 == g_jpegdec_obj->num_clients) {
       /* no client, close jpeg */
-      mm_jpeg_deinit(g_jpeg_obj);
-      free(g_jpeg_obj);
-      g_jpeg_obj = NULL;
+      mm_jpegdec_deinit(g_jpegdec_obj);
+      free(g_jpegdec_obj);
+      g_jpegdec_obj = NULL;
     }
   }
 
-  pthread_mutex_unlock(&g_intf_lock);
+  pthread_mutex_unlock(&g_dec_intf_lock);
   return clnt_hdl;
 }
+
+
+

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013, The Linux Foundataion. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundataion. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions are
@@ -47,6 +47,7 @@ class QCamera3Channel;
     } stream_status_t;
 
     typedef struct {
+        uint32_t out_buf_index;
         int32_t jpeg_orientation;
         uint8_t jpeg_quality;
         cam_dimension_t thumbnail_size;

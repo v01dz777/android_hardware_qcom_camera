@@ -137,9 +137,7 @@ private:
     mm_jpeg_ops_t              mJpegHandle;
     uint32_t                   mJpegClientHandle;
     uint32_t                   mJpegSessionId;
-
-    QCamera3Exif *             m_pJpegExifObj;
-    int8_t                     m_bThumbnailNeeded;
+    uint32_t                   m_bThumbnailNeeded;
     QCamera3Memory             *mJpegMem;
     int                        mJpegMemIndex;
     QCamera3ReprocessChannel *  m_pReprocChannel;

@@ -104,6 +104,19 @@ int32_t QCamera3PostProcessor::init(jpeg_encode_callback_t jpeg_cb, void *user_d
 {
     mJpegCB = jpeg_cb;
     mJpegUserData = user_data;
+    mm_dimension max_size;
+
+    if ((0 > m_parent->m_max_pic_dim.width) ||
+            (0 > m_parent->m_max_pic_dim.height)) {
+        ALOGE("%s : Negative dimension %dx%d", __func__,
+                m_parent->m_max_pic_dim.width, m_parent->m_max_pic_dim.height);
+        return BAD_VALUE;
+    }
+
+    //set max pic size
+    memset(&max_size, 0, sizeof(mm_dimension));
+    max_size.w = (uint32_t)m_parent->m_max_pic_dim.width;
+    max_size.h = (uint32_t)m_parent->m_max_pic_dim.height;
 
     mJpegClientHandle = jpeg_open(&mJpegHandle);
     if(!mJpegClientHandle) {
@@ -242,6 +255,17 @@ int32_t QCamera3PostProcessor::getJpegEncodingConfig(mm_jpeg_encode_params_t& en
     ALOGV("%s : E", __func__);
     int32_t ret = NO_ERROR;
 
+    if ((NULL == frame) || (NULL == jpeg_settings)) {
+        return BAD_VALUE;
+    }
+
+    ssize_t bufSize = mJpegMem->getSize(jpeg_settings->out_buf_index);
+    if (BAD_INDEX == bufSize) {
+        ALOGE("%s: cannot retrieve buffer size for buffer %u", __func__,
+                jpeg_settings->out_buf_index);
+        return BAD_VALUE;
+    }
+
     encode_parm.jpeg_cb = mJpegCB;
     encode_parm.userdata = mJpegUserData;
 
@@ -253,6 +277,58 @@ int32_t QCamera3PostProcessor::getJpegEncodingConfig(mm_jpeg_encode_params_t& en
         // (0,0) means no thumbnail
         m_bThumbnailNeeded = FALSE;
     }
+
+    //Pass output jpeg buffer info to encoder.
+    //mJpegMem is allocated by framework.
+    encode_parm.num_dst_bufs = 1;
+    encode_parm.dest_buf[0].index = 0;
+    encode_parm.dest_buf[0].buf_size = (size_t)bufSize;
+    encode_parm.dest_buf[0].buf_vaddr = (uint8_t *)mJpegMem->getPtr(
+            jpeg_settings->out_buf_index);
+    encode_parm.dest_buf[0].fd = mJpegMem->getFd(
+            jpeg_settings->out_buf_index);
+    encode_parm.dest_buf[0].format = MM_JPEG_FMT_YUV;
+    encode_parm.dest_buf[0].offset = main_offset;
+
+    CDBG("%s : X", __func__);
+    return NO_ERROR;
+
+on_error:
+    CDBG("%s : X with error %d", __func__, ret);
+    return ret;
+}
+
+/*===========================================================================
+ * FUNCTION   : getJpegEncodeConfig
+ *
+ * DESCRIPTION: function to prepare encoding job information
+ *
+ * PARAMETERS :
+ *   @encode_parm   : param to be filled with encoding configuration
+ *   #main_stream   : stream object where the input buffer comes from
+ *   @jpeg_settings : jpeg settings to be applied for encoding
+ *
+ * RETURN     : int32_t type of status
+ *              NO_ERROR  -- success
+ *              none-zero failure code
+ *==========================================================================*/
+int32_t QCamera3PostProcessor::getJpegEncodeConfig(
+                mm_jpeg_encode_params_t& encode_parm,
+                QCamera3Stream *main_stream,
+                jpeg_settings_t *jpeg_settings)
+{
+    CDBG("%s : E", __func__);
+    int32_t ret = NO_ERROR;
+    ssize_t bufSize = 0;
+
+    encode_parm.jpeg_cb = mJpegCB;
+    encode_parm.userdata = mJpegUserData;
+
+    if (jpeg_settings->thumbnail_size.width > 0 &&
+            jpeg_settings->thumbnail_size.height > 0)
+        m_bThumbnailNeeded = TRUE;
+    else
+        m_bThumbnailNeeded = FALSE;
     encode_parm.encode_thumbnail = m_bThumbnailNeeded;
 
     // get color format
@@ -282,7 +358,13 @@ int32_t QCamera3PostProcessor::getJpegEncodingConfig(mm_jpeg_encode_params_t& en
     for (uint32_t i = 0; i < encode_parm.num_src_bufs; i++) {
         if (pStreamMem != NULL) {
             encode_parm.src_main_buf[i].index = i;
-            encode_parm.src_main_buf[i].buf_size = pStreamMem->getSize(i);
+            bufSize = pStreamMem->getSize(i);
+            if (BAD_INDEX == bufSize) {
+            ALOGE("%s: cannot retrieve buffer size for buffer %u", __func__, i);
+                ret = BAD_VALUE;
+                goto on_error;
+            }
+            encode_parm.src_main_buf[i].buf_size = (size_t)bufSize;
             encode_parm.src_main_buf[i].buf_vaddr = (uint8_t *)pStreamMem->getPtr(i);
             encode_parm.src_main_buf[i].fd = pStreamMem->getFd(i);
             encode_parm.src_main_buf[i].format = MM_JPEG_FMT_YUV;
@@ -306,10 +388,16 @@ int32_t QCamera3PostProcessor::getJpegEncodingConfig(mm_jpeg_encode_params_t& en
         memset(&thumb_offset, 0, sizeof(cam_frame_len_offset_t));
         thumb_stream->getFrameOffset(thumb_offset);
         encode_parm.num_tmb_bufs = pStreamMem->getCnt();
-        for (int i = 0; i < pStreamMem->getCnt(); i++) {
+        for (uint32_t i = 0; i < pStreamMem->getCnt(); i++) {
             if (pStreamMem != NULL) {
                 encode_parm.src_thumb_buf[i].index = i;
-                encode_parm.src_thumb_buf[i].buf_size = pStreamMem->getSize(i);
+                bufSize = pStreamMem->getSize(i);
+                if (BAD_INDEX == bufSize) {
+                    ALOGE("%s: cannot retrieve buffer size for buffer %u", __func__, i);
+                    ret = BAD_VALUE;
+                    goto on_error;
+                }
+                encode_parm.src_thumb_buf[i].buf_size = (uint32_t)bufSize;
                 encode_parm.src_thumb_buf[i].buf_vaddr = (uint8_t *)pStreamMem->getPtr(i);
                 encode_parm.src_thumb_buf[i].fd = pStreamMem->getFd(i);
                 encode_parm.src_thumb_buf[i].format = MM_JPEG_FMT_YUV;
@@ -320,11 +408,20 @@ int32_t QCamera3PostProcessor::getJpegEncodingConfig(mm_jpeg_encode_params_t& en
 
     //Pass output jpeg buffer info to encoder.
     //mJpegMem is allocated by framework.
+    bufSize = mJpegMem->getSize(jpeg_settings->out_buf_index);
+    if (BAD_INDEX == bufSize) {
+        ALOGE("%s: cannot retrieve buffer size for buffer %u", __func__,
+                jpeg_settings->out_buf_index);
+        ret = BAD_VALUE;
+        goto on_error;
+    }
     encode_parm.num_dst_bufs = 1;
     encode_parm.dest_buf[0].index = 0;
-    encode_parm.dest_buf[0].buf_size = mJpegMem->getSize(mJpegMemIndex);
-    encode_parm.dest_buf[0].buf_vaddr = (uint8_t *)mJpegMem->getPtr(mJpegMemIndex);
-    encode_parm.dest_buf[0].fd = mJpegMem->getFd(mJpegMemIndex);
+    encode_parm.dest_buf[0].buf_size = (size_t)bufSize;
+    encode_parm.dest_buf[0].buf_vaddr = (uint8_t *)mJpegMem->getPtr(
+            jpeg_settings->out_buf_index);
+    encode_parm.dest_buf[0].fd = mJpegMem->getFd(
+            jpeg_settings->out_buf_index);
     encode_parm.dest_buf[0].format = MM_JPEG_FMT_YUV;
     encode_parm.dest_buf[0].offset = main_offset;
 
@@ -749,6 +846,181 @@ mm_jpeg_format_t QCamera3PostProcessor::getJpegImgTypeFromImgFmt(cam_format_t im
 }
 
 /*===========================================================================
+ * FUNCTION   : encodeFWKData
+ *
+ * DESCRIPTION: function to prepare encoding job information and send to
+ *              mm-jpeg-interface to do the encoding job
+ *
+ * PARAMETERS :
+ *   @jpeg_job_data : ptr to a struct saving job related information
+ *   @needNewSess   : flag to indicate if a new jpeg encoding session need
+ *                    to be created. After creation, this flag will be toggled
+ *
+ * RETURN     : int32_t type of status
+ *              NO_ERROR  -- success
+ *              none-zero failure code
+ *==========================================================================*/
+int32_t QCamera3PostProcessor::encodeFWKData(qcamera_hal3_jpeg_data_t *jpeg_job_data,
+        uint8_t &needNewSess)
+{
+    CDBG("%s : E", __func__);
+    int32_t ret = NO_ERROR;
+    mm_jpeg_job_t jpg_job;
+    uint32_t jobId = 0;
+    qcamera_fwk_input_pp_data_t *recvd_frame = NULL;
+    metadata_buffer_t *metadata = NULL;
+    jpeg_settings_t *jpeg_settings = NULL;
+    QCamera3HardwareInterface* hal_obj = NULL;
+
+    if (NULL == jpeg_job_data) {
+        ALOGE("%s: Invalid jpeg job", __func__);
+        return BAD_VALUE;
+    }
+
+    recvd_frame = jpeg_job_data->fwk_frame;
+    if (NULL == recvd_frame) {
+        ALOGE("%s: Invalid input buffer", __func__);
+        return BAD_VALUE;
+    }
+
+    metadata = jpeg_job_data->metadata;
+    if (NULL == metadata) {
+        ALOGE("%s: Invalid metadata buffer", __func__);
+        return BAD_VALUE;
+    }
+
+    jpeg_settings = jpeg_job_data->jpeg_settings;
+    if (NULL == jpeg_settings) {
+        ALOGE("%s: Invalid jpeg settings buffer", __func__);
+        return BAD_VALUE;
+    }
+
+    if ((NULL != jpeg_job_data->src_frame) && (NULL != jpeg_job_data->src_frame)) {
+        ALOGE("%s: Unsupported case both framework and camera source buffers are invalid!",
+                __func__);
+        return BAD_VALUE;
+    }
+
+    hal_obj = (QCamera3HardwareInterface*)m_parent->mUserData;
+
+    if (mJpegClientHandle <= 0) {
+        ALOGE("%s: Error: bug here, mJpegClientHandle is 0", __func__);
+        return UNKNOWN_ERROR;
+    }
+
+    cam_dimension_t src_dim;
+    memset(&src_dim, 0, sizeof(cam_dimension_t));
+    src_dim.width = recvd_frame->reproc_config.input_stream_dim.width;
+    src_dim.height = recvd_frame->reproc_config.input_stream_dim.height;
+
+    cam_dimension_t dst_dim;
+    memset(&dst_dim, 0, sizeof(cam_dimension_t));
+    dst_dim.width = recvd_frame->reproc_config.output_stream_dim.width;
+    dst_dim.height = recvd_frame->reproc_config.output_stream_dim.height;
+
+    CDBG_HIGH("%s: Need new session?:%d",__func__, needNewSess);
+    if (needNewSess) {
+        //creating a new session, so we must destroy the old one
+        if ( 0 < mJpegSessionId ) {
+            ret = mJpegHandle.destroy_session(mJpegSessionId);
+            if (ret != NO_ERROR) {
+                ALOGE("%s: Error destroying an old jpeg encoding session, id = %d",
+                      __func__, mJpegSessionId);
+                return ret;
+            }
+            mJpegSessionId = 0;
+        }
+        // create jpeg encoding session
+        mm_jpeg_encode_params_t encodeParam;
+        memset(&encodeParam, 0, sizeof(mm_jpeg_encode_params_t));
+        encodeParam.main_dim.src_dim = src_dim;
+        encodeParam.main_dim.dst_dim = dst_dim;
+        encodeParam.thumb_dim.src_dim = src_dim;
+        encodeParam.thumb_dim.dst_dim = jpeg_settings->thumbnail_size;
+
+        getFWKJpegEncodeConfig(encodeParam, recvd_frame, jpeg_settings);
+        CDBG_HIGH("%s: #src bufs:%d # tmb bufs:%d #dst_bufs:%d", __func__,
+                     encodeParam.num_src_bufs,encodeParam.num_tmb_bufs,encodeParam.num_dst_bufs);
+
+        ret = mJpegHandle.create_session(mJpegClientHandle, &encodeParam, &mJpegSessionId);
+        if (ret != NO_ERROR) {
+            ALOGE("%s: Error creating a new jpeg encoding session, ret = %d", __func__, ret);
+            return ret;
+        }
+        needNewSess = FALSE;
+    }
+
+    // Fill in new job
+    memset(&jpg_job, 0, sizeof(mm_jpeg_job_t));
+    jpg_job.job_type = JPEG_JOB_TYPE_ENCODE;
+    jpg_job.encode_job.session_id = mJpegSessionId;
+    jpg_job.encode_job.src_index = 0;
+    jpg_job.encode_job.dst_index = 0;
+
+    cam_rect_t crop;
+    memset(&crop, 0, sizeof(cam_rect_t));
+    //TBD_later - Zoom event removed in stream
+    //main_stream->getCropInfo(crop);
+
+    // main dim
+    jpg_job.encode_job.main_dim.src_dim = src_dim;
+    jpg_job.encode_job.main_dim.dst_dim = dst_dim;
+    jpg_job.encode_job.main_dim.crop = crop;
+
+    // get exif data
+    QCamera3Exif *pJpegExifObj = m_parent->getExifData(metadata, jpeg_settings);
+    jpeg_job_data->pJpegExifObj = pJpegExifObj;
+    if (pJpegExifObj != NULL) {
+        jpg_job.encode_job.exif_info.exif_data = pJpegExifObj->getEntries();
+        jpg_job.encode_job.exif_info.numOfEntries =
+            pJpegExifObj->getNumOfEntries();
+    }
+
+    // thumbnail dim
+    CDBG_HIGH("%s: Thumbnail needed:%d",__func__, m_bThumbnailNeeded);
+    if (m_bThumbnailNeeded == TRUE) {
+        memset(&crop, 0, sizeof(cam_rect_t));
+        jpg_job.encode_job.thumb_dim.dst_dim =
+                jpeg_settings->thumbnail_size;
+
+        if (!hal_obj->needRotationReprocess()) {
+            jpg_job.encode_job.rotation = (uint32_t)jpeg_settings->jpeg_orientation;
+            CDBG_HIGH("%s: jpeg rotation is set to %u", __func__, jpg_job.encode_job.rotation);
+        } else if (jpeg_settings->jpeg_orientation  == 90 ||
+                jpeg_settings->jpeg_orientation == 270) {
+            //swap the thumbnail destination width and height if it has
+            //already been rotated
+            int temp = jpg_job.encode_job.thumb_dim.dst_dim.width;
+            jpg_job.encode_job.thumb_dim.dst_dim.width =
+                    jpg_job.encode_job.thumb_dim.dst_dim.height;
+            jpg_job.encode_job.thumb_dim.dst_dim.height = temp;
+        }
+        jpg_job.encode_job.thumb_dim.src_dim = src_dim;
+        jpg_job.encode_job.thumb_dim.crop = crop;
+        jpg_job.encode_job.thumb_index = 0;
+    }
+
+    if (metadata != NULL) {
+       //Fill in the metadata passed as parameter
+       jpg_job.encode_job.p_metadata = metadata;
+    } else {
+       ALOGE("%s: Metadata is null", __func__);
+    }
+
+    jpg_job.encode_job.hal_version = CAM_HAL_V3;
+
+    //Start jpeg encoding
+    ret = mJpegHandle.start_job(&jpg_job, &jobId);
+    if (ret == NO_ERROR) {
+        // remember job info
+        jpeg_job_data->jobId = jobId;
+    }
+
+    CDBG("%s : X", __func__);
+    return ret;
+}
+
+/*===========================================================================
  * FUNCTION   : encodeData
  *
  * DESCRIPTION: function to prepare encoding job information and send to
@@ -893,7 +1165,7 @@ int32_t QCamera3PostProcessor::encodeData(qcamera_jpeg_data_t *jpeg_job_data,
     memset(&jpg_job, 0, sizeof(mm_jpeg_job_t));
     jpg_job.job_type = JPEG_JOB_TYPE_ENCODE;
     jpg_job.encode_job.session_id = mJpegSessionId;
-    jpg_job.encode_job.src_index = main_frame->buf_idx;
+    jpg_job.encode_job.src_index = (int32_t)main_frame->buf_idx;
     jpg_job.encode_job.dst_index = 0;
 
     cam_rect_t crop;
@@ -939,15 +1211,18 @@ int32_t QCamera3PostProcessor::encodeData(qcamera_jpeg_data_t *jpeg_job_data,
         //thumb_stream->getCropInfo(crop);
         m_parent->getThumbnailSize(jpg_job.encode_job.thumb_dim.dst_dim);
         if (!hal_obj->needRotationReprocess()) {
-           memset(&src_dim, 0, sizeof(cam_dimension_t));
-           thumb_stream->getFrameDimension(src_dim);
-           jpg_job.encode_job.rotation = m_parent->getJpegRotation();
-           ALOGD("%s: jpeg rotation is set to %d", __func__, jpg_job.encode_job.rotation);
-        } else {
-           //swap the thumbnail destination width and height if it has already been rotated
-           int temp = jpg_job.encode_job.thumb_dim.dst_dim.width;
-           jpg_job.encode_job.thumb_dim.dst_dim.width = jpg_job.encode_job.thumb_dim.dst_dim.height;
-           jpg_job.encode_job.thumb_dim.dst_dim.height = temp;
+            jpg_job.encode_job.rotation = (uint32_t)
+                    jpeg_settings->jpeg_orientation;
+            CDBG_HIGH("%s: jpeg rotation is set to %d", __func__,
+                    jpg_job.encode_job.rotation);
+        } else if (jpeg_settings->jpeg_orientation  == 90 ||
+                jpeg_settings->jpeg_orientation == 270) {
+            //swap the thumbnail destination width and height if it has
+            //already been rotated
+            int temp = jpg_job.encode_job.thumb_dim.dst_dim.width;
+            jpg_job.encode_job.thumb_dim.dst_dim.width =
+                    jpg_job.encode_job.thumb_dim.dst_dim.height;
+            jpg_job.encode_job.thumb_dim.dst_dim.height = temp;
         }
         jpg_job.encode_job.thumb_dim.src_dim = src_dim;
         jpg_job.encode_job.thumb_dim.crop = crop;

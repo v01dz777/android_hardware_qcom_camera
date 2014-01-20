@@ -409,7 +409,29 @@ int mm_app_stop_capture(mm_camera_test_obj_t *test_obj)
 
     rc = mm_app_stop_channel(test_obj, ch);
     if (MM_CAMERA_OK != rc) {
-        CDBG_ERROR("%s:stop recording failed rc=%d\n", __func__, rc);
+
+        CDBG_ERROR("%s:stop capture channel failed rc=%d\n", __func__, rc);
+    }
+
+    return rc;
+}
+
+int mm_app_take_picture(mm_camera_test_obj_t *test_obj, uint8_t is_burst_mode)
+{
+    CDBG_HIGH("\nEnter %s!!\n",__func__);
+    int rc = MM_CAMERA_OK;
+    uint8_t num_snapshot = 1;
+    int num_rcvd_snapshot = 0;
+
+    if (is_burst_mode)
+       num_snapshot = 6;
+
+    //stop preview before starting capture.
+    rc = mm_app_stop_preview(test_obj);
+    if (rc != MM_CAMERA_OK) {
+        CDBG_ERROR("%s: stop preview failed before capture!!, err=%d\n",__func__, rc);
+        return rc;
+
     }
 
     return rc;

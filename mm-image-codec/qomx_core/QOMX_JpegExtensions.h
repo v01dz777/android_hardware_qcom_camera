@@ -1,4 +1,4 @@
-/*Copyright (c) 2012, The Linux Foundation. All rights reserved.
+/*Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -222,6 +222,50 @@ typedef enum {
   OMX_Serial_Encoding,
   OMX_Parallel_Encoding
 } QOMX_ENCODING_MODE;
+
+/**omx_jpeg_ouput_buf_t
+*  Structure describing jpeg output buffer
+*  @handle - Handle to the containing class
+*  @mem_hdl - Handle to camera memory struct
+*  @vaddr - Buffer address
+*  @size - Buffer size
+*  @fd - file descriptor
+**/
+typedef struct {
+  void *handle;
+  void *mem_hdl;
+  int8_t isheap;
+  size_t size; /*input*/
+  void *vaddr;
+  int fd;
+} omx_jpeg_ouput_buf_t;
+
+/** QOMX_MEM_OPS
+* Structure holding the function pointers to
+* buffer memory operations
+* @get_memory - function to allocate buffer memory
+**/
+typedef struct {
+  int (*get_memory)( omx_jpeg_ouput_buf_t *p_out_buf);
+} QOMX_MEM_OPS;
+
+/** QOMX_JPEG_SPEED_MODE
+* Enum specifying the values for the jpeg
+* speed mode setting
+**/
+typedef enum {
+  QOMX_JPEG_SPEED_MODE_NORMAL,
+  QOMX_JPEG_SPEED_MODE_HIGH
+} QOMX_JPEG_SPEED_MODE;
+
+/** QOMX_JPEG_SPEED
+* Structure used to set the jpeg speed mode
+* parameter
+* @speedMode - jpeg speed mode
+**/
+typedef struct {
+  QOMX_JPEG_SPEED_MODE speedMode;
+} QOMX_JPEG_SPEED;
 
 #ifdef __cplusplus
  }
